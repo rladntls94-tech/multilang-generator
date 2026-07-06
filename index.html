@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BDC 다국어 생성기</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Pretendard', 'Noto Sans KR', sans-serif;
+    background: #0f0f0f; color: #e8e8e8;
+    min-height: 100vh; padding: 40px 24px;
+  }
+  .header { margin-bottom: 20px; }
+  .header h1 { font-size: 22px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .header p { font-size: 13px; color: #888; margin-bottom: 12px; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 10px;
+    border-radius: 20px; background: #1e3a5f; color: #7ab8f5;
+    margin-left: 8px; vertical-align: middle; font-weight: 500;
+  }
+  .note {
+    font-size: 12px; color: #aaa; font-weight: 500; margin: 18px 0 16px;
+    line-height: 1.8; background: #161616; border: 0.5px solid #2a2a2a;
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .note b { color: #f0c060; }
+  .note code { background: #222; padding: 1px 6px; border-radius: 4px; color: #7ab8f5; }
+  input[type="text"], input[type="number"], select {
+    padding: 6px 8px; border-radius: 6px; border: 0.5px solid #333;
+    background: #1a1a1a; color: #e8e8e8; font-size: 13px;
+  }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px; }
+  .panel-label { font-size: 11px; color: #666; margin-bottom: 8px; letter-spacing: 0.08em; text-transform: uppercase; }
+  textarea {
+    width: 100%; height: 440px; resize: vertical;
+    font-family: 'Consolas', 'D2Coding', monospace; font-size: 13px;
+    padding: 14px; border: 0.5px solid #2a2a2a; border-radius: 10px;
+    background: #161616; color: #e8e8e8; line-height: 1.7;
+  }
+  textarea:focus { outline: none; border-color: #444; }
+  textarea[readonly] { background: #111; color: #ccc; }
+  .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+  button {
+    padding: 9px 20px; font-size: 13px; font-weight: 500;
+    border-radius: 8px; cursor: pointer; border: 0.5px solid #333;
+    background: #1a1a1a; color: #e8e8e8;
+  }
+  button:hover { background: #252525; }
+  .btn-primary { background: #e8e8e8; color: #111; border-color: transparent; }
+  .btn-primary:hover { background: #fff; }
+  .copy-msg { font-size: 12px; color: #6dbf7e; opacity: 0; transition: opacity 0.3s; }
+  .copy-msg.show { opacity: 1; }
+  .report-box {
+    margin-top: 14px; font-size: 12px; line-height: 1.8;
+    background: #161616; border: 0.5px solid #2a2a2a; border-radius: 8px;
+    padding: 12px 14px; display: none; max-height: 320px; overflow-y: auto;
+  }
+  .report-box.show { display: block; }
+  .report-box .ok { color: #6dbf7e; }
+  .report-box .warn { color: #e0a95c; }
+  .report-box .fail { color: #e07070; }
+  .report-box ul { margin: 4px 0 10px 18px; }
+  /* 스크롤바 — 다크 테마에 맞춘 얇은 둥근 막대 */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 6px; border: 2px solid #161616; }
+  ::-webkit-scrollbar-thumb:hover { background: #555; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>다국어 생성기 <span class="badge">검은사막 콘솔</span></h1>
+  <p>한국어 완성본 소스코드의 구조는 그대로 두고, 텍스트만 엑셀 번역으로 치환해 영어/일본어/불어/독어 소스코드를 만듭니다. <b>한국어</b>를 고르면 소스코드와 엑셀이 다른 부분을 찾아주는 비교 모드로 동작합니다.</p>
+</div>
+
+<div class="note">
+  <b>사용 순서</b><br>
+  1. 패치노트 엑셀(.xlsx)을 불러오고 주차 시트를 고릅니다. (숨김 행은 자동 제외)<br>
+  2. 왼쪽에 한국어 완성본 소스코드를 붙여넣고, 언어를 골라 <b>생성</b>을 누릅니다.<br>
+  3. 보고서에서 실패 목록을 확인하세요 — 결과의 <span style="background:#ffe08a;color:#333;padding:0 4px;border-radius:3px;">노란색</span>은 엑셀과 표기가 다른 부분, <span style="background:#ffb3b3;color:#333;padding:0 4px;border-radius:3px;">빨간색</span>은 엑셀에 없는 텍스트입니다.<br>
+  열 구조: 한국어 <code>B</code> · 영어 <code>H</code> · 일본어 <code>M</code> · 불어 <code>R</code> · 독어 <code>W</code> — 시작행 5는 머리글(1~4행)을 건너뜁니다.
+</div>
+
+<div class="note" style="border-color:#2a4a2a;">
+  <div class="actions" style="margin-bottom:0;">
+    <input type="file" id="xlsx-file" accept=".xlsx,.xls">
+    <span id="sheet-picker" style="display:none;">
+      시트 <select id="sheet-select"></select>
+      시작행 <input type="number" id="row-start" value="5" style="width:64px;">
+      끝행 <input type="number" id="row-end" placeholder="전체" style="width:64px;">
+      언어별 시작열 <input type="text" id="col-config" value="B,H,M,R,W" style="width:110px;" title="한국어,영어,일본어,불어,독어 순서">
+    </span>
+  </div>
+  <div id="file-info" style="margin-top:8px; color:#7ab8f5;"></div>
+</div>
+
+<div class="panels">
+  <div>
+    <p class="panel-label">한국어 완성본 소스코드 (운영툴에 등록된 HTML)</p>
+    <textarea id="input" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="운영툴에 등록한 한국어 소스코드 전체를 붙여넣으세요."></textarea>
+  </div>
+  <div>
+    <p class="panel-label">생성된 소스코드</p>
+    <textarea id="output" readonly spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="언어를 고르고 생성 버튼을 누르면 여기에 나타납니다."></textarea>
+  </div>
+</div>
+
+<div class="actions">
+  언어
+  <select id="lang-select">
+    <option value="KR">한국어 (B~E, 비교용)</option>
+    <option value="EN">영어 (H~K)</option>
+    <option value="JP">일본어 (M~P)</option>
+    <option value="FR">불어 (R~U)</option>
+    <option value="DE">독어 (W~Z)</option>
+  </select>
+  <button class="btn-primary" onclick="generate()">생성</button>
+  <button onclick="copyOutput()">결과 복사</button>
+  <button onclick="removeHighlights()">하이라이트 제거</button>
+  <label style="font-size:12px; color:#aaa; cursor:pointer;" title="켜면 한글 문장 한가운데 있는 단어도 치환합니다. 「'요정의 숨결'이 발견되었습니다」처럼 한국어와 번역이 섞인 문장이 생길 수 있습니다.">
+    <input type="checkbox" id="allow-partial" style="vertical-align:middle;"> 문장 속 부분 치환 허용 (혼합 문장 위험)
+  </label>
+  <label style="font-size:12px; color:#aaa; cursor:pointer;" title="끄면 긴 줄을 접지 않고 가로 스크롤로 보여줍니다. 대용량 소스 편집이 훨씬 가벼워집니다. 값에는 영향 없음.">
+    <input type="checkbox" id="wrap-toggle" checked onchange="toggleWrap()" style="vertical-align:middle;"> 자동 줄바꿈
+  </label>
+  <span class="copy-msg" id="copy-msg">복사되었습니다</span>
+</div>
+
+<div class="report-box" id="report"></div>
+
+<script>
+// ── 엑셀 로딩 ──
+let loadedWorkbook = null;
+
+document.getElementById('xlsx-file').addEventListener('change', function (e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (evt) {
+    const data = new Uint8Array(evt.target.result);
+    loadedWorkbook = XLSX.read(data, { type: 'array', cellStyles: true }); // cellStyles가 있어야 행 숨김(!rows) 정보가 읽힘
+    const sel = document.getElementById('sheet-select');
+    sel.innerHTML = '';
+    loadedWorkbook.SheetNames.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    });
+    document.getElementById('sheet-picker').style.display = 'inline-flex';
+    document.getElementById('file-info').textContent =
+      `"${file.name}" 불러옴 — 시트 ${loadedWorkbook.SheetNames.length}개. 주차 시트를 고르세요.`;
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+function colLetterToIndex(letter) {
+  let idx = 0;
+  for (const ch of letter.trim().toUpperCase()) idx = idx * 26 + (ch.charCodeAt(0) - 64);
+  return idx - 1;
+}
+
+// ── 한국어→대상 언어 매핑 수집 ──
+// 각 언어 블록은 4열(내용/변경전/변경후/여분)이 병렬 구조라서 같은 offset끼리 짝을 만든다
+function collectPairs(ws, startRow, endRow, krCol, tgtCol) {
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  const s = startRow ? Math.max(startRow - 1, range.s.r) : range.s.r;
+  const e = endRow ? Math.min(endRow - 1, range.e.r) : range.e.r;
+  const rowMeta = ws['!rows'] || [];
+  const getCell = (r, c) => {
+    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+    return cell && cell.v != null ? String(cell.v).trim() : '';
+  };
+  const map = new Map(); // kr → { tgt, row }
+  const missing = [];    // 한국어는 있는데 대상 언어 셀이 빈 행
+  const noHangul = [];   // 한글이 없는 셀 — 숫자/기호만이라 오치환 위험이 있어 자동 치환에서 제외
+  let conflicts = 0;
+  let hiddenCount = 0;
+
+  for (let r = s; r <= e; r++) {
+    if (rowMeta[r] && rowMeta[r].hidden) { hiddenCount++; continue; }
+    for (let k = 0; k < 4; k++) {
+      // 엑셀이 섹션 제목에 쓰는 "| " 접두어(예: "| 탑승물", "| MOUNT")는 HTML에 없으므로 양쪽에서 제거
+      const kr = getCell(r, krCol + k).replace(/^\s*\|\s*/, '');
+      if (!kr || kr.length < 2) continue;
+      const tgt = getCell(r, tgtCol + k).replace(/^\s*\|\s*/, '');
+      if (!tgt) { missing.push({ row: r + 1, kr }); continue; }
+      if (!/[가-힣]/.test(kr)) { noHangul.push({ row: r + 1, kr }); continue; }
+      if (map.has(kr)) {
+        if (map.get(kr).tgt !== tgt) conflicts++;
+        continue; // 같은 한국어가 여러 번 나오면 첫 번째 번역을 사용
+      }
+      map.set(kr, { tgt, row: r + 1 });
+    }
+  }
+  return { map, missing, noHangul, conflicts, hiddenCount };
+}
+
+// ── 치환용 정규식 생성 ──
+// 셀 텍스트와 HTML 표기가 다를 수 있는 부분을 전부 흡수:
+//   공백/줄바꿈 ↔ &nbsp;, <br />, </div><div>, </p><p>, <strong>, <span>, <img> 경계
+//   & < > ↔ HTML 엔티티 / 엑셀 [대괄호] ↔ HTML <꺾쇠> 표기 차이
+//   br은 운영툴이 data-* 속성을 붙이는 경우가 있어 <br[^>]*> 로 허용 (0709 소스에서 확인)
+const SEP = '(?:\\s|\\u00a0|&nbsp;|<br[^>]*>|<\\/div>\\s*<div[^>]*>|<\\/p>\\s*<p[^>]*>|<\\/?strong[^>]*>|<\\/?span[^>]*>|<\\/?(?:em|b|i|u|a)(?:\\s[^>]*)?>|<img[^>]*>)';
+
+// 엑셀에 공백이 없는 자리에 낀 인라인 태그도 흡수 (예: 색상 span — "서비스팀</span>입니다")
+const INLINE = '(?:<\\/?(?:span|strong|em|b|i|u|a)(?:\\s[^>]*)?>)*';
+
+function buildKoreanRegex(kr, allowPartial) {
+  const norm = kr.replace(/[\s ]+/g, ' ').trim();
+  let re = '';
+  let atBoundary = true; // 공백/시작 직후에는 INLINE 불필요 (SEP가 태그를 이미 흡수)
+  for (const ch of norm) {
+    if (ch === ' ') { re += SEP + '+'; atBoundary = true; continue; }
+    if (!atBoundary) re += INLINE;
+    atBoundary = false;
+    if (ch === '&') re += '(?:&amp;|&)';
+    else if (ch === '<') re += '(?:&lt;|<)';
+    else if (ch === '>') re += '(?:&gt;|>)';
+    else if (ch === '[') re += '(?:\\[|&lt;|<)';
+    else if (ch === ']') re += '(?:\\]|&gt;|>)';
+    else if (ch === '"' || ch === '“' || ch === '”') re += '(?:"|“|”|&quot;)'; // 곧은따옴표 ↔ 둥근따옴표 ↔ &quot;
+    else if (ch === "'" || ch === '‘' || ch === '’') re += "(?:'|‘|’|&#39;|&apos;)";
+    else re += ch.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  }
+  // 부분 치환 비허용 시: 앞뒤에 한글이 바로 붙어있으면 매칭하지 않음
+  // → 「...가진 '요정의 숨결'이...」처럼 긴 한국어 문장 속 단어만 바뀌는 혼합 문장을 방지
+  if (!allowPartial) re = '(?<![가-힣])' + re + '(?![가-힣])';
+  return new RegExp(re, 'g');
+}
+
+function escapeTarget(t) {
+  return t.split('\n').map(l =>
+    l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  ).join('<br />');
+}
+
+// 불어/독어 천 단위 구분 변환 (12,500,000 → FR: 12 500 000 / DE: 12.500.000)
+// 태그 안(style 너비 등)은 건드리지 않도록 텍스트 부분만 처리. 실제 엑셀 번역 표기 규칙 확인함
+const NUM_SEP = { FR: ' ', DE: '.' };
+function localizeNumbers(html, lang) {
+  const sep = NUM_SEP[lang];
+  if (!sep) return { html, count: 0 };
+  let count = 0;
+  const parts = html.split(/(<[^>]*>)/);
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].startsWith('<')) continue;
+    parts[i] = parts[i].replace(/\d{1,3}(?:,\d{3})+/g, m => { count++; return m.replace(/,/g, sep); });
+  }
+  return { html: parts.join(''), count };
+}
+
+// 이전 실행에서 넣은 하이라이트 마커 제거 (재실행/결과 재사용 대비)
+function stripLeftoverMarks(html) {
+  return html.replace(/<span[^>]*data-kr-leftover[^>]*>([\s\S]*?)<\/span>/g, '$1');
+}
+
+// 치환 후에도 남아있는 한국어를 배경색 span으로 감싸서 눈에 띄게 표시
+//   노란색: 엑셀 문구와 단어가 상당수 겹침(표기 차이/일부 수정으로 통째 매칭 실패)
+//   빨간색: 엑셀 어디에도 없는 텍스트(소스에만 있음)
+// (태그 안 속성은 건드리지 않도록 태그/텍스트를 분리해서 텍스트 부분만 처리)
+function highlightLeftovers(html, krCorpus) {
+  let count = 0, countMiss = 0;
+  const inExcel = (s) => {
+    const words = s.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length >= 2);
+    if (!words.length) return true; // 한 글자짜리는 판정 불가 — 표기 차이로 취급
+    const hit = words.filter(w => krCorpus.indexOf(w) >= 0).length;
+    return hit / words.length >= 0.6;
+  };
+  const parts = html.split(/(<[^>]*>)/);
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].startsWith('<')) continue;
+    parts[i] = parts[i].replace(/[가-힣][^<>\n]*[가-힣]|[가-힣]/g, m => {
+      const known = inExcel(m);
+      if (known) count++; else countMiss++;
+      return '<span data-kr-leftover style="background-color: ' + (known ? '#ffe08a' : '#ffb3b3') + ';">' + m + '</span>';
+    });
+  }
+  return { html: parts.join(''), count, countMiss };
+}
+
+// ── 생성 ──
+const LANG_ORDER = { KR: 0, EN: 1, JP: 2, FR: 3, DE: 4 };
+
+function generate() {
+  const html = document.getElementById('input').value;
+  const report = document.getElementById('report');
+  if (!loadedWorkbook) { alert('엑셀 파일을 먼저 불러오세요.'); return; }
+  if (!html.trim()) { alert('한국어 완성본 소스코드를 붙여넣으세요.'); return; }
+
+  const sheetName = document.getElementById('sheet-select').value;
+  const ws = loadedWorkbook.Sheets[sheetName];
+  const startRow = parseInt(document.getElementById('row-start').value, 10) || null;
+  const endRow = parseInt(document.getElementById('row-end').value, 10) || null;
+  const lang = document.getElementById('lang-select').value;
+
+  const cols = document.getElementById('col-config').value.split(',').map(colLetterToIndex);
+  if (cols.length < 5 || cols.some(isNaN)) { alert('언어별 시작열 설정이 잘못되었습니다. 예: B,H,M,R,W'); return; }
+  const krCol = cols[LANG_ORDER.KR];
+  const tgtCol = cols[LANG_ORDER[lang]];
+
+  const { map, missing, noHangul, conflicts, hiddenCount } = collectPairs(ws, startRow, endRow, krCol, tgtCol);
+
+  // 긴 문장부터 치환해서 짧은 문구가 긴 문장 속을 먼저 갉아먹는 것을 방지
+  const pairs = [...map.entries()].sort((a, b) => b[0].length - a[0].length);
+
+  const allowPartial = document.getElementById('allow-partial').checked;
+  // KR 비교 모드: 결과도 한글이라 그대로 두면 전부 "남은 한국어"로 하이라이트되므로,
+  // 일치한 문구를 임시 토큰으로 치환해 하이라이트에서 제외했다가 마지막에 복원한다
+  const krMode = lang === 'KR';
+  const stash = [];
+  let result = stripLeftoverMarks(html);
+  let replacedRows = 0, replacedTotal = 0;
+  const notFound = [];
+  for (const [kr, info] of pairs) {
+    const re = buildKoreanRegex(kr, allowPartial);
+    const tgtEscaped = escapeTarget(info.tgt);
+    let n = 0;
+    result = result.replace(re, () => {
+      n++;
+      if (!krMode) return tgtEscaped;
+      stash.push(tgtEscaped);
+      return '' + (stash.length - 1) + '';
+    });
+    if (n === 0) notFound.push({ row: info.row, kr, tgt: info.tgt });
+    else { replacedRows++; replacedTotal += n; }
+  }
+
+  // 통째로 매칭 실패한 여러 줄 셀은 줄 단위로 재시도 — 실제로 다른 줄만 하이라이트에 남도록
+  // (다국어 생성 시에는 한국어/번역의 줄 수가 같은 셀만 줄끼리 짝지어 치환)
+  let lineRows = 0, lineTotal = 0;
+  const TOK0 = String.fromCharCode(0xE000), TOK1 = String.fromCharCode(0xE001);
+  const linePairs = new Map();
+  for (const nf of notFound) {
+    const krLines = nf.kr.split('\n').map(s => s.trim()).filter(s => s);
+    const tgtLines = nf.tgt.split('\n').map(s => s.trim()).filter(s => s);
+    if (krLines.length < 2 || krLines.length !== tgtLines.length) continue;
+    for (let i = 0; i < krLines.length; i++) {
+      const k = krLines[i];
+      if (k.length < 2 || !/[가-힣]/.test(k) || map.has(k) || linePairs.has(k)) continue;
+      linePairs.set(k, tgtLines[i]);
+    }
+  }
+  for (const [kr, tgt] of [...linePairs.entries()].sort((a, b) => b[0].length - a[0].length)) {
+    const re = buildKoreanRegex(kr, allowPartial);
+    const tgtEscaped = escapeTarget(tgt);
+    let n = 0;
+    result = result.replace(re, () => {
+      n++;
+      if (!krMode) return tgtEscaped;
+      stash.push(tgtEscaped);
+      return TOK0 + (stash.length - 1) + TOK1;
+    });
+    if (n) { lineRows++; lineTotal += n; }
+  }
+
+  // 불어/독어 숫자 표기 변환 (한글 없는 셀이 치환에서 제외돼도 숫자는 여기서 현지 표기로 바뀜)
+  const numResult = localizeNumbers(result, lang);
+  result = numResult.html;
+
+  // 남은 한글 분류용 코퍼스: 번역이 비어있는 행도 엑셀에 "있는" 문구이므로 포함
+  const krCorpus = [...map.keys(), ...missing.map(x => x.kr)].join('\n');
+  const highlighted = highlightLeftovers(result, krCorpus);
+  result = highlighted.html;
+  if (krMode) result = result.replace(/(\d+)/g, (m, i) => stash[i]); // 일치 문구 복원
+
+  // Private 등 내부용 텍스트가 결과에 남아있는지 검사
+  const privHits = [];
+  const privRe = /private/gi;
+  let pm;
+  while ((pm = privRe.exec(result)) !== null) {
+    privHits.push(result.slice(Math.max(0, pm.index - 30), pm.index + 37).replace(/\s+/g, ' '));
+  }
+
+  document.getElementById('output').value = result;
+
+  // ── 보고서 ──
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const snip = (t) => t.length > 40 ? t.slice(0, 40) + '…' : t;
+  const list = (arr, max) => arr.slice(0, max).map(x => `<li>${x.row}행: ${esc(snip(x.kr))}</li>`).join('')
+    + (arr.length > max ? `<li>… 외 ${arr.length - max}개</li>` : '');
+  let htmlReport = `<span class="ok">치환 완료 — 엑셀 문구 ${pairs.length}개 중 ${replacedRows}개 반영 (총 ${replacedTotal}회 치환${hiddenCount ? `, 숨김 행 ${hiddenCount}개 제외` : ''}${conflicts ? `, 같은 한국어에 다른 번역 ${conflicts}건은 첫 번째 사용` : ''})</span>`;
+  if (lineRows) {
+    htmlReport += `<br><span class="ok">통째로 일치하지 않은 여러 줄 셀에서 줄 단위로 ${lineRows}개 문구를 추가 반영했습니다 (총 ${lineTotal}회 치환).</span>`;
+  }
+  if (privHits.length) {
+    htmlReport += `<br><span class="fail">⚠ 결과에 "Private" 텍스트가 ${privHits.length}곳 있습니다 — 내부용 내용이 섞였는지 확인하세요.</span><ul>${privHits.slice(0, 10).map(t => `<li>…${esc(t)}…</li>`).join('')}</ul>`;
+  }
+  if (numResult.count) {
+    htmlReport += `<br><span class="ok">숫자 천 단위 구분 ${numResult.count}곳을 ${lang === 'FR' ? '공백(12 500 000)' : '마침표(12.500.000)'} 표기로 변환했습니다.</span>`;
+  }
+  if (highlighted.count + highlighted.countMiss) {
+    const legend = [];
+    if (highlighted.count) legend.push(`<span style="background:#ffe08a;color:#333;padding:0 5px;border-radius:3px;">노란색 ${highlighted.count}곳</span> 엑셀 문구와 표기가 다른 부분`);
+    if (highlighted.countMiss) legend.push(`<span style="background:#ffb3b3;color:#333;padding:0 5px;border-radius:3px;">빨간색 ${highlighted.countMiss}곳</span> 엑셀에 없는 텍스트`);
+    htmlReport += `<br><span class="warn">${krMode ? '엑셀과 다른 부분을' : '결과에 남은 한국어를'} 배경색으로 표시했습니다</span> — ${legend.join(' / ')}. 운영툴에서 해당 부분을 수정한 뒤, 아래 <b>하이라이트 제거</b> 버튼으로 표시를 지운 결과를 쓰거나 운영툴에서 직접 배경색을 제거하세요.`;
+  }
+  if (notFound.length) {
+    // 항목을 펼치면 번역 전문이 나와서 바로 복사해 쓸 수 있음
+    const nfItems = notFound.slice(0, 40).map(x =>
+      `<details><summary>${x.row}행: ${esc(snip(x.kr))}</summary><div style="padding:6px 0 10px 14px; color:#9fd0ff; user-select:all;">${esc(x.tgt).replace(/\n/g, '<br>')}</div></details>`
+    ).join('') + (notFound.length > 40 ? `<div>… 외 ${notFound.length - 40}개</div>` : '');
+    htmlReport += `<br><span class="fail">HTML에서 찾지 못한 문구 ${notFound.length}개</span> — 운영툴에서 수기로 고쳐졌거나 엑셀과 표기가 다른 부분입니다 (결과물에 노란 하이라이트로 남음). 항목을 클릭하면 번역 전문이 나오니 복사해서 붙여넣으세요.${nfItems}`;
+  }
+  if (missing.length) {
+    htmlReport += `<span class="warn">번역이 비어있는 행 ${missing.length}개</span> — 엑셀에 ${document.getElementById('lang-select').selectedOptions[0].textContent} 번역이 없어서 한국어로 남습니다.<ul>${list(missing, 15)}</ul>`;
+  }
+  if (noHangul.length) {
+    htmlReport += `<span class="warn">자동 치환 제외 ${noHangul.length}개 (한글 없는 셀)</span> — 숫자/기호만 있는 셀은 코드의 다른 부분을 잘못 바꿀 위험이 있어 제외했습니다.<ul>${list(noHangul, 15)}</ul>`;
+  }
+  report.innerHTML = htmlReport;
+  report.classList.add('show');
+}
+
+function toggleWrap() {
+  const on = document.getElementById('wrap-toggle').checked;
+  ['input', 'output'].forEach(id =>
+    document.getElementById(id).setAttribute('wrap', on ? 'soft' : 'off')
+  );
+}
+
+function removeHighlights() {
+  const out = document.getElementById('output');
+  if (!out.value) return;
+  out.value = stripLeftoverMarks(out.value);
+}
+
+function copyOutput() {
+  const out = document.getElementById('output').value;
+  if (!out) return;
+  navigator.clipboard.writeText(out).then(() => {
+    const msg = document.getElementById('copy-msg');
+    msg.classList.add('show');
+    setTimeout(() => msg.classList.remove('show'), 2000);
+  });
+}
+</script>
+</body>
+</html>
