@@ -178,8 +178,11 @@ function collectPairs(ws, startRow, endRow, krCol, tgtCol) {
   };
   // 엑셀의 "< icon >" 자리표시자 줄은 HTML에서는 <img> 태그라 매칭 불가 — 양쪽 셀에서 해당 줄만 제거
   const stripIcon = (s) => s.split('\n').filter(l => !/^<\s*icon\s*>$/i.test(l.trim())).join('\n').trim();
+  // "日本×"류 마커: 번역 대신 "이 항목은 해당 언어에서 제외" 표시 — 치환하지 말고 삭제 대상으로 보고
+  const EXCLUDE_MARK = /^\s*(?:日本|한국|米国|英国)?\s*[×✕✗xXｘＸ]\s*$/;
   const map = new Map(); // kr → { tgt, row }
   const missing = [];    // 한국어는 있는데 대상 언어 셀이 빈 행
+  const excluded = [];   // 번역 셀이 미적용 마커(日本× 등)인 행 — 패치노트에서 항목 삭제 필요
   const noHangul = [];   // 한글이 없는 셀 — 숫자/기호만이라 오치환 위험이 있어 자동 치환에서 제외
   let conflicts = 0;
   let hiddenCount = 0;
@@ -192,6 +195,7 @@ function collectPairs(ws, startRow, endRow, krCol, tgtCol) {
       if (!kr || kr.length < 2) continue;
       const tgt = stripIcon(getCell(r, tgtCol + k).replace(/^\s*\|\s*/, ''));
       if (!tgt) { missing.push({ row: r + 1, kr }); continue; }
+      if (EXCLUDE_MARK.test(tgt)) { excluded.push({ row: r + 1, kr }); continue; }
       if (!/[가-힣]/.test(kr)) { noHangul.push({ row: r + 1, kr }); continue; }
       if (map.has(kr)) {
         if (map.get(kr).tgt !== tgt) conflicts++;
@@ -200,7 +204,7 @@ function collectPairs(ws, startRow, endRow, krCol, tgtCol) {
       map.set(kr, { tgt, row: r + 1 });
     }
   }
-  return { map, missing, noHangul, conflicts, hiddenCount };
+  return { map, missing, excluded, noHangul, conflicts, hiddenCount };
 }
 
 // ── 치환용 정규식 생성 ──
@@ -306,7 +310,7 @@ function generate() {
   const krCol = cols[LANG_ORDER.KR];
   const tgtCol = cols[LANG_ORDER[lang]];
 
-  const { map, missing, noHangul, conflicts, hiddenCount } = collectPairs(ws, startRow, endRow, krCol, tgtCol);
+  const { map, missing, excluded, noHangul, conflicts, hiddenCount } = collectPairs(ws, startRow, endRow, krCol, tgtCol);
 
   // 긴 문장부터 치환해서 짧은 문구가 긴 문장 속을 먼저 갉아먹는 것을 방지
   const pairs = [...map.entries()].sort((a, b) => b[0].length - a[0].length);
@@ -366,7 +370,7 @@ function generate() {
   result = numResult.html;
 
   // 남은 한글 분류용 코퍼스: 번역이 비어있는 행도 엑셀에 "있는" 문구이므로 포함
-  const krCorpus = [...map.keys(), ...missing.map(x => x.kr)].join('\n');
+  const krCorpus = [...map.keys(), ...missing.map(x => x.kr), ...excluded.map(x => x.kr)].join('\n');
   const highlighted = highlightLeftovers(result, krCorpus);
   result = highlighted.html;
   if (krMode) result = result.replace(/(\d+)/g, (m, i) => stash[i]); // 일치 문구 복원
@@ -408,6 +412,9 @@ function generate() {
       `<details><summary>${x.row}행: ${esc(snip(x.kr))}</summary><div style="padding:6px 0 10px 14px; color:#9fd0ff; user-select:all;">${esc(x.tgt).replace(/\n/g, '<br>')}</div></details>`
     ).join('') + (notFound.length > 40 ? `<div>… 외 ${notFound.length - 40}개</div>` : '');
     htmlReport += `<br><span class="fail">HTML에서 찾지 못한 문구 ${notFound.length}개</span> — 운영툴에서 수기로 고쳐졌거나 엑셀과 표기가 다른 부분입니다 (결과물에 노란 하이라이트로 남음). 항목을 클릭하면 번역 전문이 나오니 복사해서 붙여넣으세요.${nfItems}`;
+  }
+  if (excluded.length) {
+    htmlReport += `<br><span class="fail">미적용 마커(日本× 등) 행 ${excluded.length}개</span> — 이 항목들은 해당 언어 패치노트에서 <b>항목 자체를 삭제</b>해야 합니다. 한국어 문장이 결과물에 하이라이트로 남아 있으니 찾아서 지우세요.<ul>${list(excluded, 15)}</ul>`;
   }
   if (missing.length) {
     htmlReport += `<span class="warn">번역이 비어있는 행 ${missing.length}개</span> — 엑셀에 ${document.getElementById('lang-select').selectedOptions[0].textContent} 번역이 없어서 한국어로 남습니다.<ul>${list(missing, 15)}</ul>`;
