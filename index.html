@@ -176,6 +176,8 @@ function collectPairs(ws, startRow, endRow, krCol, tgtCol) {
     const cell = ws[XLSX.utils.encode_cell({ r, c })];
     return cell && cell.v != null ? String(cell.v).trim() : '';
   };
+  // 엑셀의 "< icon >" 자리표시자 줄은 HTML에서는 <img> 태그라 매칭 불가 — 양쪽 셀에서 해당 줄만 제거
+  const stripIcon = (s) => s.split('\n').filter(l => !/^<\s*icon\s*>$/i.test(l.trim())).join('\n').trim();
   const map = new Map(); // kr → { tgt, row }
   const missing = [];    // 한국어는 있는데 대상 언어 셀이 빈 행
   const noHangul = [];   // 한글이 없는 셀 — 숫자/기호만이라 오치환 위험이 있어 자동 치환에서 제외
@@ -186,9 +188,9 @@ function collectPairs(ws, startRow, endRow, krCol, tgtCol) {
     if (rowMeta[r] && rowMeta[r].hidden) { hiddenCount++; continue; }
     for (let k = 0; k < 4; k++) {
       // 엑셀이 섹션 제목에 쓰는 "| " 접두어(예: "| 탑승물", "| MOUNT")는 HTML에 없으므로 양쪽에서 제거
-      const kr = getCell(r, krCol + k).replace(/^\s*\|\s*/, '');
+      const kr = stripIcon(getCell(r, krCol + k).replace(/^\s*\|\s*/, ''));
       if (!kr || kr.length < 2) continue;
-      const tgt = getCell(r, tgtCol + k).replace(/^\s*\|\s*/, '');
+      const tgt = stripIcon(getCell(r, tgtCol + k).replace(/^\s*\|\s*/, ''));
       if (!tgt) { missing.push({ row: r + 1, kr }); continue; }
       if (!/[가-힣]/.test(kr)) { noHangul.push({ row: r + 1, kr }); continue; }
       if (map.has(kr)) {
